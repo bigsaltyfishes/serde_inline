@@ -21,20 +21,52 @@
 //! ```
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{Attribute, Expr, Fields, ItemStruct, parse_macro_input, parse_quote};
+use syn::{Attribute, Expr, Fields, Item, parse_macro_input, parse_quote};
 
 #[proc_macro_attribute]
 pub fn serde_inline(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(item as ItemStruct);
-    let struct_name = &input.ident;
+    let mut input = parse_macro_input!(item);
     let mut helpers = Vec::new();
+    let mut targets = Vec::new();
 
-    if let Fields::Named(fields) = &mut input.fields {
-        for field in &mut fields.named {
-            let Some(field_name) = &field.ident else {
-                continue;
-            };
+    match &mut input {
+        Item::Struct(item_struct) => {
+            targets.push((item_struct.ident.clone(), &mut item_struct.fields));
+        }
+        Item::Enum(item_enum) => {
+            let enum_name = &item_enum.ident;
+            for variant in &mut item_enum.variants {
+                let variant_name = &variant.ident;
+                let combined_ident = format_ident!("{enum_name}_{variant_name}");
+                targets.push((combined_ident, &mut variant.fields));
+            }
+        }
+        _ => {
+            return syn::Error::new_spanned(input, "serde_inline only supports structs and enums")
+                .to_compile_error()
+                .into();
+        }
+    }
 
+    for (parent_ident, fields) in targets {
+        let field_iter: Box<dyn Iterator<Item = (String, &mut syn::Field)>> = match fields {
+            Fields::Named(fields_named) => Box::new(
+                fields_named
+                    .named
+                    .iter_mut()
+                    .map(|f| (f.ident.as_ref().unwrap().to_string(), f)),
+            ),
+            Fields::Unnamed(fields_unnamed) => Box::new(
+                fields_unnamed
+                    .unnamed
+                    .iter_mut()
+                    .enumerate()
+                    .map(|(i, f)| (format!("_{i}"), f)),
+            ),
+            Fields::Unit => continue,
+        };
+
+        for (field_name, field) in field_iter {
             let mut inline_attr_index = None;
             let mut deserialize_expr: Option<Expr> = None;
             let mut default_expr: Option<Expr> = None;
@@ -69,7 +101,7 @@ pub fn serde_inline(_attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut serde_args = Vec::new();
 
             if let Some(expr) = deserialize_expr {
-                let function_name = format!("_{struct_name}_{field_name}_deserialize");
+                let function_name = format!("_{parent_ident}_{field_name}_deserialize");
                 let function_ident = format_ident!("{function_name}");
                 serde_args.push(quote! { deserialize_with = #function_name });
                 helpers.push(quote! {
@@ -84,7 +116,7 @@ pub fn serde_inline(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             if let Some(expr) = default_expr {
-                let function_name = format!("_{struct_name}_{field_name}_default");
+                let function_name = format!("_{parent_ident}_{field_name}_default");
                 let function_ident = format_ident!("{function_name}");
                 serde_args.push(quote! { default = #function_name });
                 helpers.push(quote! {

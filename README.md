@@ -23,7 +23,7 @@ features = ["derive"]
 
 ## Usage
 
-Apply `#[serde_inline]` to the struct, then use `#[serde_inline(...)]` on the fields you want to customize.
+Apply `#[serde_inline]` to the struct or enum, then use `#[serde_inline(...)]` on the fields you want to customize.
 
 ```rust
 #[serde_inline]
@@ -46,7 +46,6 @@ struct Example {
 
 ## Limitations
 
-- The macro currently only rewrites named struct fields.
 - Unsupported `#[serde_inline(...)]` keys will cause a macro error.
 - The crate is focused on serde deserialization helpers; it does not add new serde features beyond field-level `deserialize_with` and `default`.
 

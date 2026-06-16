@@ -42,6 +42,37 @@ struct Example {
     position: Vec3,
 }
 
+#[serde_inline]
+#[derive(Deserialize)]
+struct TupleExample(
+    #[serde_inline(deserialize_with = |deserializer| {
+        RawVec3::deserialize(deserializer).map(Into::into)
+    })]
+    Vec3,
+);
+
+#[derive(Deserialize)]
+struct TupleExampleWrapper {
+    inner: TupleExample,
+}
+
+#[serde_inline]
+#[derive(Deserialize)]
+enum ExampleEnum {
+    Named {
+        #[serde_inline(deserialize_with = |deserializer| {
+            RawVec3::deserialize(deserializer).map(Into::into)
+        })]
+        position: Vec3,
+    },
+    Tuple(
+        #[serde_inline(deserialize_with = |deserializer| {
+            RawVec3::deserialize(deserializer).map(Into::into)
+        })]
+        Vec3,
+    ),
+}
+
 #[test]
 fn test_deserialize() {
     let data = r#"{"position": "1 2 3"}"#;
@@ -54,4 +85,37 @@ fn test_deserialize() {
     assert_eq!(example_default.position.0.x, 0);
     assert_eq!(example_default.position.0.y, 0);
     assert_eq!(example_default.position.0.z, 0);
+}
+
+#[test]
+fn test_deserialize_tuple_struct_unnamed_field() {
+    let data = r#"{ "inner": "1 2 3" }"#;
+    let value: TupleExampleWrapper = serde_json::from_str(data).unwrap();
+    assert_eq!(value.inner.0.0.x, 1);
+    assert_eq!(value.inner.0.0.y, 2);
+    assert_eq!(value.inner.0.0.z, 3);
+}
+
+#[test]
+fn test_deserialize_enum_fields() {
+    let named: ExampleEnum = serde_json::from_str(r#"{"Named":{"position":"7 8 9"}}"#).unwrap();
+    let tuple: ExampleEnum = serde_json::from_str(r#"{"Tuple":"4 5 6"}"#).unwrap();
+
+    match named {
+        ExampleEnum::Named { position } => {
+            assert_eq!(position.0.x, 7);
+            assert_eq!(position.0.y, 8);
+            assert_eq!(position.0.z, 9);
+        }
+        _ => panic!("expected named variant"),
+    }
+
+    match tuple {
+        ExampleEnum::Tuple(position) => {
+            assert_eq!(position.0.x, 4);
+            assert_eq!(position.0.y, 5);
+            assert_eq!(position.0.z, 6);
+        }
+        _ => panic!("expected tuple variant"),
+    }
 }
