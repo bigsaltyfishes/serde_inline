@@ -101,16 +101,68 @@ pub fn serde_inline(_attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut serde_args = Vec::new();
 
             if let Some(expr) = deserialize_expr {
+                let Expr::Closure(closure) = expr else {
+                    return syn::Error::new_spanned(
+                        expr,
+                        "Expected a closure for deserialize_with",
+                    )
+                    .to_compile_error()
+                    .into();
+                };
+
+                if closure.asyncness.is_some() {
+                    return syn::Error::new_spanned(
+                        &closure.asyncness,
+                        "async closures are not supported in serde_inline deserialize_with",
+                    )
+                    .to_compile_error()
+                    .into();
+                }
+
+                if closure.capture.is_some() {
+                    return syn::Error::new_spanned(
+                        &closure.capture,
+                        "move closures are not supported in serde_inline deserialize_with",
+                    )
+                    .to_compile_error()
+                    .into();
+                }
+
+                if closure.inputs.len() != 1 {
+                    return syn::Error::new_spanned(
+                        &closure.inputs,
+                        "deserialize_with closure must take exactly one parameter",
+                    )
+                    .to_compile_error()
+                    .into();
+                }
+
+                let Some(first_arg) = closure.inputs.first() else {
+                    unreachable!();
+                };
+
+                let arg_ident = match first_arg {
+                    syn::Pat::Ident(pat) => &pat.ident,
+                    _ => {
+                        return syn::Error::new_spanned(
+                            first_arg,
+                            "deserialize_with closure parameter must be an identifier",
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
+                };
+
+                let body = &closure.body;
                 let function_name = format!("_{parent_ident}_{field_name}_deserialize");
                 let function_ident = format_ident!("{function_name}");
                 serde_args.push(quote! { deserialize_with = #function_name });
                 helpers.push(quote! {
-                    fn #function_ident<'de, D>(deserializer: D) -> ::std::result::Result<#field_type, D::Error>
+                    fn #function_ident<'de, D>(#arg_ident: D) -> ::std::result::Result<#field_type, D::Error>
                     where
                         D: ::serde::Deserializer<'de>,
                     {
-                        let parser = #expr;
-                        parser(deserializer)
+                        #body
                     }
                 });
             }
